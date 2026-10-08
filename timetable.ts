@@ -6,7 +6,7 @@ export interface ClockCourse {
   endMinute: number
 }
 
-export type TimetableErrorCode = 'name' | 'day' | 'time' | 'order' | 'header' | 'columns' | 'quote' | 'empty' | 'large';
+export type TimetableErrorCode = 'name' | 'day' | 'time' | 'order' | 'header' | 'columns' | 'quote' | 'empty' | 'large' | 'settings';
 
 export class TimetableInputError extends Error {
   constructor(public code: TimetableErrorCode, public row?: number) {
@@ -120,4 +120,66 @@ export function renderWeekTimetable(courses: ClockCourse[], days: string[], empt
     const items = courses.filter(course => course.day === index + 1).sort((a, b) => a.startMinute - b.startMinute || a.endMinute - b.endMinute);
     return `${day}\n${items.length ? items.map(course => `  ${formatClockTime(course.startMinute)}–${formatClockTime(course.endMinute)}  ${course.name}`).join('\n') : `  ${empty}`}`;
   }).join('\n\n');
+}
+
+export interface TimeRange {
+  startMinute: number
+  endMinute: number
+}
+
+export interface DailyWindow extends TimeRange { day: number }
+export interface MergedClockCourse extends ClockCourse { sourceIds: string[] }
+
+export function makeDailyWindow(day: number, start: string, end: string): DailyWindow {
+  const startMinute = parseClockTime(start);
+  const endMinute = parseClockTime(end, true);
+  if (!Number.isInteger(day) || day < 1 || day > 7 || endMinute <= startMinute) throw new TimetableInputError('settings');
+  return { day, startMinute, endMinute };
+}
+
+export function mergeCourseSessions(courses: ClockCourse[], gapMinutes = 10): MergedClockCourse[] {
+  if (!Number.isInteger(gapMinutes) || gapMinutes < 0 || gapMinutes > 60) throw new TimetableInputError('settings');
+  const groups = new Map<string, ClockCourse[]>();
+  courses.forEach((course) => {
+    const key = JSON.stringify([course.day, course.name]);
+    const group = groups.get(key) ?? [];
+    group.push(course); groups.set(key, group);
+  });
+  const result: MergedClockCourse[] = [];
+  groups.forEach((group) => {
+    let current: MergedClockCourse | undefined;
+    [...group].sort((a, b) => a.startMinute - b.startMinute).forEach((course) => {
+      if (current && course.startMinute <= current.endMinute + gapMinutes) {
+        current.endMinute = Math.max(current.endMinute, course.endMinute);
+        current.sourceIds.push(course.id);
+      }
+      else {
+        current = { ...course, sourceIds: [course.id] };
+        result.push(current);
+      }
+    });
+  });
+  return result.sort((a, b) => a.day - b.day || a.startMinute - b.startMinute || a.endMinute - b.endMinute);
+}
+
+// Half-open intervals [start, end): touching endpoints do not create a gap.
+export function findDailyFreeSlots(courses: ClockCourse[], window: DailyWindow, minimumMinutes = 1, gapMinutes = 10): TimeRange[] {
+  if (!Number.isInteger(minimumMinutes) || minimumMinutes < 1 || minimumMinutes > 1440
+    || !Number.isInteger(window.day) || window.day < 1 || window.day > 7
+    || !Number.isInteger(window.startMinute) || !Number.isInteger(window.endMinute)
+    || window.startMinute < 0 || window.endMinute > 1440 || window.endMinute <= window.startMinute) {
+    throw new TimetableInputError('settings');
+  }
+  const busy = mergeCourseSessions(courses.filter(course => course.day === window.day), gapMinutes)
+    .map(course => ({ startMinute: Math.max(window.startMinute, course.startMinute), endMinute: Math.min(window.endMinute, course.endMinute) }))
+    .filter(range => range.endMinute > range.startMinute)
+    .sort((a, b) => a.startMinute - b.startMinute);
+  const result: TimeRange[] = [];
+  let cursor = window.startMinute;
+  busy.forEach((range) => {
+    if (range.startMinute - cursor >= minimumMinutes) result.push({ startMinute: cursor, endMinute: range.startMinute });
+    cursor = Math.max(cursor, range.endMinute);
+  });
+  if (window.endMinute - cursor >= minimumMinutes) result.push({ startMinute: cursor, endMinute: window.endMinute });
+  return result;
 }
