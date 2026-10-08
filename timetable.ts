@@ -40,7 +40,7 @@ export function makeClockCourse(input: { name: string, day: string | number, sta
   if (!name || name.length > 100) throw new TimetableInputError('name');
   const rawDay = String(input.day).trim().toLowerCase();
   const day = dayAliases[rawDay] ?? (/^[1-7]$/.test(rawDay) ? Number(rawDay) : 0);
-  if (!day) throw new TimetableInputError('day');
+  if (!Number.isInteger(day) || day < 1 || day > 7) throw new TimetableInputError('day');
   const startMinute = parseClockTime(input.start.trim());
   const endMinute = parseClockTime(input.end.trim(), true);
   if (endMinute <= startMinute) throw new TimetableInputError('order');
@@ -182,4 +182,38 @@ export function findDailyFreeSlots(courses: ClockCourse[], window: DailyWindow, 
   });
   if (window.endMinute - cursor >= minimumMinutes) result.push({ startMinute: cursor, endMinute: window.endMinute });
   return result;
+}
+
+export interface TimetableParticipant {
+  id: string
+  name: string
+  courses: ClockCourse[]
+  confirmed: boolean
+}
+
+export function intersectTimeRanges(first: TimeRange[], second: TimeRange[]): TimeRange[] {
+  const result: TimeRange[] = [];
+  let a = 0;
+  let b = 0;
+  while (a < first.length && b < second.length) {
+    const startMinute = Math.max(first[a].startMinute, second[b].startMinute);
+    const endMinute = Math.min(first[a].endMinute, second[b].endMinute);
+    if (endMinute > startMinute) result.push({ startMinute, endMinute });
+    if (first[a].endMinute < second[b].endMinute) a++;
+    else b++;
+  }
+  return result;
+}
+
+export function findCommonFreeSlots(schedules: ClockCourse[][], windows: DailyWindow[], minimumMinutes = 1, gapMinutes = 10): DailyWindow[] {
+  if (!Number.isInteger(minimumMinutes) || minimumMinutes < 1 || minimumMinutes > 1440) throw new TimetableInputError('settings');
+  if (!schedules.length) return [];
+  const result = windows.flatMap((window) => {
+    let common = findDailyFreeSlots(schedules[0], window, 1, gapMinutes);
+    schedules.slice(1).forEach((courses) => {
+      common = intersectTimeRanges(common, findDailyFreeSlots(courses, window, 1, gapMinutes));
+    });
+    return common.filter(slot => slot.endMinute - slot.startMinute >= minimumMinutes).map(slot => ({ ...slot, day: window.day }));
+  });
+  return result.sort((a, b) => (b.endMinute - b.startMinute) - (a.endMinute - a.startMinute) || a.day - b.day || a.startMinute - b.startMinute);
 }
