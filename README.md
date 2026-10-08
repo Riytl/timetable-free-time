@@ -6,7 +6,9 @@
 
 - [PR #1：课表录入、CSV 与本周文本视图](https://github.com/Riytl/timetable-free-time/pull/1)
 - [PR #2：每日范围、连续课程合并与空档计算](https://github.com/Riytl/timetable-free-time/pull/2)
-- 需求 3 的 PR 链接在合并后补充。主分支提供完整版本。
+- [PR #3：多人课表与共同空档时长排序](https://github.com/Riytl/timetable-free-time/pull/3)
+
+三个 PR 分别对应考题的三个需求，主分支提供完整版本。
 
 ## 本地运行
 
